@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Flashcards</title>
+    <!-- 引入 Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* * 为卡片翻转添加样式 
+         * 'transform-style' 和 'backface-visibility' 是实现3D翻转效果的关键
+         */
+        
+        /* 卡片容器 */
+        #flashcard {
+            transform-style: preserve-3d;
+            transition: transform 0.6s;
+        }
+
+        /* 卡片的正面和背面 */
+        #card-front, #card-back {
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden; /* 兼容 Safari */
+            /* 保持绝对定位和圆角，使其重叠 */
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: 0.5rem; /* 8px */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem; /* 24px */
+        }
+
+        /* 卡片正面 */
+        #card-front {
+            background-color: #4B5563; /* gray-600 */
+        }
+
+        /* 卡片背面默认旋转180度（隐藏） */
+        #card-back {
+            transform: rotateY(180deg);
+            background-color: #374151; /* gray-700 */
+        }
+
+        /* 当卡片被翻转时的样式 */
+        #flashcard.is-flipped {
+            transform: rotateY(180deg);
+        }
+
+        /* 为反向模式开关添加样式 */
+        .toggle-label {
+            transition: background-color 0.2s ease-in;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            @apply bg-blue-600;
+        }
+        .toggle-checkbox:checked + .toggle-label + span {
+             transform: translateX(100%);
+        }
+        /* 修正开关在 Tailwind 3+ 上的位移 */
+        .toggle-checkbox:checked + .toggle-label + span {
+             transform: translateX(calc(100% - 0.5rem)); /* 100% - padding */
+        }
+         /* 确保span在label内部移动 */
+        .toggle-label {
+            width: 100%;
+            display: block;
+            position: relative;
+        }
+        .toggle-label + span {
+            left: 0.25rem; /* p-1 */
+            top: 0.25rem; /* p-1 */
+        }
+        
+        /* 为激活的标签页添加样式 */
+        .tab-btn.active {
+            @apply bg-blue-600 text-white;
+        }
+
+        /* 为搜索结果中的按钮添加样式 */
+        .add-from-api-btn {
+            @apply mt-2 text-sm bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-white font-semibold transition-colors;
+        }
+        .search-result-item {
+            @apply p-3 bg-gray-700 rounded-lg;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center font-sans p-4">
+
+    <main class="w-full max-w-md">
+        <h1 class="text-3xl font-bold text-center mb-4 text-blue-400">Smart Flashcards</h1>
+        
+        <!-- 语言选择 和 反向模式 -->
+        <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+                <label for="language-select" class="block text-sm font-medium text-gray-400 mb-1">Select Deck</label>
+                <select id="language-select" class="w-full p-2 rounded bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 h-10">
+                    <!-- JS 动态填充 -->
+                </select>
+            </div>
+            <div>
+                <label for="reverse-toggle" class="block text-sm font-medium text-gray-400 mb-1">Reverse Mode (Def -&gt; Word)</label>
+                <div class="relative inline-block w-full h-10 align-middle select-none">
+                    <input type="checkbox" id="reverse-toggle" class="toggle-checkbox absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer z-10"/>
+                    <label for="reverse-toggle" class="toggle-label block overflow-hidden h-full p-1 rounded-full bg-gray-700 cursor-pointer"></label>
+                    <span class="absolute left-1 top-1 w-8 h-8 bg-white rounded-full shadow-md transform transition-transform duration-200 ease-in"></span>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- 添加单词的表单 (带标签页) -->
+        <div id="add-word-container" class="mb-4 bg-gray-800 p-4 rounded-lg shadow-md">
+            
+            <!-- 标签页按钮 -->
+            <div class="flex mb-4 border-b border-gray-700">
+                <button id="btn-tab-manual" class="tab-btn active flex-1 py-2 px-4 font-semibold text-gray-400 rounded-t-lg focus:outline-none">
+                    Manual Add
+                </button>
+                <button id="btn-tab-web" class="tab-btn flex-1 py-2 px-4 font-semibold text-gray-400 rounded-t-lg focus:outline-none">
+                    Web Add
+                </button>
+            </div>
+
+            <!-- 标签页1：手动添加 (原表单) -->
+            <div id="tab-content-manual" class="">
+                <h2 class="text-xl font-semibold mb-3 text-center text-blue-300">Add Full Card</h2>
+                <div class="space-y-3">
+                    <input type="text" id="input-word" placeholder="Enter word (or 'New Deck')" class="w-full p-2 rounded bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <input type="text" id="input-definition" placeholder="Enter definition (or new deck name)" class="w-full p-2 rounded bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button id="btn-add-word" class="w-full bg-blue-600 hover:bg-blue-700 p-2 rounded-lg font-semibold shadow-lg transform transition-transform hover:scale-105">
+                        + Add to Deck
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 标签页2：从网络添加 (修改为搜索) -->
+            <div id="tab-content-web" class="hidden">
+                <h2 class="text-xl font-semibold mb-3 text-center text-blue-300">Search Dictionary (English Only)</h2>
+                <div class="space-y-3">
+                    <input type="text" id="input-web-word" placeholder="Search for an English word..." class="w-full p-2 rounded bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <button id="btn-search-web" class="w-full bg-orange-600 hover:bg-orange-700 p-2 rounded-lg font-semibold shadow-lg transform transition-transform hover:scale-105">
+                        Search
+                    </button>
+                </div>
+                <!-- 新增：搜索结果区域 -->
+                <div id="search-results" class="mt-4 space-y-2 max-h-48 overflow-y-auto p-2 bg-gray-900 rounded-md">
+                    <!-- JS 动态填充 -->
+                    <p class="text-gray-500 text-center">Enter a word to search.</p>
+                </div>
+            </div>
+
+            <p id="add-feedback" class="text-green-400 text-sm text-center mt-2 h-4"></p> <!-- 用于显示反馈 -->
+        </div>
+
+        <!-- 查看所有单词按钮 -->
+        <button id="btn-show-all" class="w-full bg-gray-600 hover:bg-gray-700 p-2 rounded-lg font-semibold shadow-lg text-sm mb-4 transform transition-transform hover:scale-105">
+            View All Words
+        </button>
+
+        <p id="progress-text" class="text-gray-400 text-center mb-4">Let's start learning!</p>
+
+        <!-- 卡片区域 -->
+        <div id="flashcard-container" class="relative w-full h-48 cursor-pointer" title="Click to flip">
+            <!-- 容器需要设置 perspective 来产生3D效果 -->
+            <div id="flashcard" class="relative w-full h-full">
+                <!-- 卡片正面 -->
+                <div id="card-front" class="text-2xl font-semibold break-all">
+                    <!-- 单词将在这里显示 -->
+                </div>
+                <!-- 卡片背面 -->
+                <div id="card-back" class="text-2xl font-semibold break-all">
+                    <!-- 定义将在这里显示 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 控制按钮 -->
+        <div id="controls" class="mt-6 grid grid-cols-2 gap-4">
+            <button id="btn-incorrect" class="bg-red-600 hover:bg-red-700 p-4 rounded-lg text-lg font-semibold shadow-lg transform transition-transform hover:scale-105">
+                ❌ Incorrect
+            </button>
+            <button id="btn-correct" class="bg-green-600 hover:bg-green-700 p-4 rounded-lg text-lg font-semibold shadow-lg transform transition-transform hover:scale-105">
+                ✅ I Know It
+            </button>
+        </div>
+
+        <!-- 完成/重启 视图 -->
+        <div id="completion-view" class="text-center mt-6 hidden">
+            <p class="text-4xl mb-4">🎉</p>
+            <p class="text-2xl font-semibold text-green-400 mb-6">Congratulations, all done!</p>
+            <button id="btn-restart" class="bg-blue-500 hover:bg-blue-600 p-4 rounded-lg text-lg font-semibold shadow-lg w-full">
+                Restart
+            </button>
+        </div>
+    </main>
+
+    <!-- 单词列表 Modal -->
+    <div id="word-list-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 hidden z-50">
+        <div class="bg-gray-800 w-full max-w-md p-6 rounded-lg shadow-xl max-h-[80vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-blue-300">Word List</h2>
+                <button id="btn-close-modal" class="text-gray-400 hover:text-white text-3xl focus:outline-none">&times;</button>
+            </div>
+            
+            <!-- 需要复习 -->
+            <div class="mb-6">
+                <h3 class="text-xl font-semibold text-red-400 mb-2">❌ Needs Review (<span id="review-count">0</span>)</h3>
+                <ul id="review-list" class="space-y-2 text-gray-300">
+                    <!-- JS 动态填充 -->
+                </ul>
+            </div>
+            
+            <!-- 已掌握 -->
+            <div>
+                <h3 class="text-xl font-semibold text-green-400 mb-2">✅ Mastered / Not Studied (<span id="mastered-count">0</span>)</h3>
+                <ul id="mastered-list" class="space-y-2 text-gray-300">
+                    <!-- JS 动态填充 -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // --- 1. 数据定义 ---
+        // 默认数据，只在用户第一次加载时使用
+        const defaultDecks = {
+            'English': [
+                { word: 'Apple', definition: '苹果' },
+                { word: 'Learn', definition: '学习' },
+                { word: 'Code', definition: '编程' },
+            ],
+            'German': [
+                { word: 'Welt', definition: '世界' },
+                { word: 'Sprache', definition: '语言' },
+            ],
+            'Korean': [
+                { word: '안녕하세요', definition: '你好' },
+                { word: '감사합니다', definition: '谢谢' },
+            ],
+            'New Deck': [] // 允许用户创建新牌堆
+        };
+
+        // 全局的牌堆数据
+        let allDecks = {};
+
+        // --- 2. 获取 DOM 元素 ---
+        const flashcardContainer = document.getElementById('flashcard-container');
+        const flashcard = document.getElementById('flashcard');
+        const cardFront = document.getElementById('card-front');
+        const cardBack = document.getElementById('card-back');
+        const progressText = document.getElementById('progress-text');
+
+        const controls = document.getElementById('controls');
+        const btnIncorrect = document.getElementById('btn-incorrect');
+        const btnCorrect = document.getElementById('btn-correct');
+        
+        const completionView = document.getElementById('completion-view');
+        const btnRestart = document.getElementById('btn-restart');
+
+        // 获取添加单词表单的元素
+        const inputWord = document.getElementById('input-word');
+        const inputDefinition = document.getElementById('input-definition');
+        const btnAddWord = document.getElementById('btn-add-word');
+        const addFeedback = document.getElementById('add-feedback');
+        
+        // 标签页 和 "网络添加" 表单的元素
+        const btnTabManual = document.getElementById('btn-tab-manual');
+        const btnTabWeb = document.getElementById('btn-tab-web');
+        const tabContentManual = document.getElementById('tab-content-manual');
+        const tabContentWeb = document.getElementById('tab-content-web');
+        const inputWebWord = document.getElementById('input-web-word');
+        // 修改：按钮 ID
+        const btnSearchWeb = document.getElementById('btn-search-web');
+        // 新增：搜索结果
+        const searchResults = document.getElementById('search-results');
+
+        // Modal 元素
+        const btnShowAll = document.getElementById('btn-show-all');
+        const wordListModal = document.getElementById('word-list-modal');
+        const btnCloseModal = document.getElementById('btn-close-modal');
+        const reviewList = document.getElementById('review-list');
+        const masteredList = document.getElementById('mastered-list');
+        const reviewCount = document.getElementById('review-count');
+        const masteredCount = document.getElementById('mastered-count');
+
+        // 语言和反向模式 元素
+        const languageSelect = document.getElementById('language-select');
+        const reverseToggle = document.getElementById('reverse-toggle');
+
+        // --- 3. 状态变量 ---
+        let currentDeck = []; // 当前学习的牌堆
+        let reviewDeck = [];  // 答错的牌堆（优先学习）
+        let currentCard = null;
+        let isFlipped = false;
+        let totalCards = 0;
+        let currentLanguage = ''; // 当前选择的语言
+        let isReversed = false; // 是否为反向模式
+
+        // --- 4. 核心功能 ---
+
+        /**
+         * 加载所有牌堆
+         */
+        function loadDecks() {
+            const storedDecks = localStorage.getItem('myFlashcardDecks');
+            if (storedDecks) {
+                allDecks = JSON.parse(storedDecks);
+            } else {
+                allDecks = defaultDecks;
+            }
+            
+            // 填充下拉菜单
+            languageSelect.innerHTML = ''; // 清空
+            Object.keys(allDecks).forEach(deckName => {
+                const option = document.createElement('option');
+                option.value = deckName;
+                option.textContent = deckName;
+                languageSelect.appendChild(option);
+            });
+            
+            // 自动选择上一次的语言，或第一个
+            currentLanguage = localStorage.getItem('lastLanguage') || Object.keys(allDecks)[0];
+            languageSelect.value = currentLanguage;
+        }
+
+        /**
+         * 保存所有牌堆到 localStorage
+         */
+        function saveDecks() {
+            localStorage.setItem('myFlashcardDecks', JSON.stringify(allDecks));
+            localStorage.setItem('lastLanguage', currentLanguage);
+        }
+
+        /**
+         * 启动或重启游戏
+         */
+        function startGame() {
+            // 从 allDecks 中获取当前语言的牌堆
+            const currentLanguageDeck = allDecks[currentLanguage] || [];
+            totalCards = currentLanguageDeck.length;
+
+            // 使用 Fisher-Yates 算法打乱牌堆
+            currentDeck = [...currentLanguageDeck];
+            for (let i = currentDeck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [currentDeck[i], currentDeck[j]] = [currentDeck[j], currentDeck[i]];
+            }
+            
+            reviewDeck = [];
+            currentCard = null;
+            isFlipped = false;
+
+            // 重置UI
+            controls.classList.remove('hidden');
+            completionView.classList.add('hidden');
+            if (flashcard.classList.contains('is-flipped')) {
+                flashcard.classList.remove('is-flipped');
+            }
+
+            drawCard();
+        }
+
+        /**
+         * 从牌堆中抽一张卡
+         */
+        function drawCard() {
+            // 0. 翻转回正面
+            if (isFlipped) {
+                flipCard();
+            }
+
+            // 1. 优先从 "复习牌堆" 抽卡
+            if (reviewDeck.length > 0) {
+                currentCard = reviewDeck.shift(); // 从开头取
+            } 
+            // 2. "复习牌堆" 空了，再从 "主牌堆" 抽
+            else if (currentDeck.length > 0) {
+                currentCard = currentDeck.shift(); // 从开头取
+            } 
+            // 3. 两个牌堆都空了，说明学习完成
+            else {
+                showCompletion();
+                return;
+            }
+
+            // 4. 更新卡片内容
+            setTimeout(() => { // 延迟一点时间，让翻转动画播完
+                // 检查是否反向
+                if (isReversed) {
+                    cardFront.textContent = currentCard.definition;
+                    cardBack.textContent = currentCard.word;
+                } else {
+                    cardFront.textContent = currentCard.word;
+                    cardBack.textContent = currentCard.definition;
+                }
+                updateProgress();
+            }, 150); // 150ms 延迟
+        }
+
+        /**
+         * 添加一个完整的新单词 (手动模式)
+         */
+        function addNewWord() {
+            const word = inputWord.value.trim();
+            const definition = inputDefinition.value.trim();
+
+            if (word === '' || definition === '') {
+                showFeedback('Word and definition cannot be empty!', 'red');
+                return;
+            }
+
+            // 特殊逻辑：如果输入的是 "New Deck"，则创建一个新牌堆
+            if (word.toLowerCase() === 'new deck' && definition.trim() !== '') {
+                const newDeckName = definition.trim();
+                if (!allDecks[newDeckName]) {
+                    allDecks[newDeckName] = [];
+                    saveDecks();
+                    loadDecks(); // 重新加载下拉菜单
+                    languageSelect.value = newDeckName; // 自动选中
+                    currentLanguage = newDeckName;
+                    startGame();
+                    showFeedback(`New deck "${newDeckName}" has been created!`, 'green');
+                } else {
+                    showFeedback('This deck already exists', 'red');
+                }
+                inputWord.value = '';
+                inputDefinition.value = '';
+                return;
+            }
+
+
+            const newCard = { word, definition };
+            
+            // 1. 添加到主数据列表 (用于重启)
+            if (!allDecks[currentLanguage]) {
+                allDecks[currentLanguage] = [];
+            }
+            allDecks[currentLanguage].push(newCard);
+            // 2. 添加到当前学习牌堆 (立即学习)
+            currentDeck.push(newCard);
+            
+            // 3. 更新总数和进度
+            totalCards = allDecks[currentLanguage].length;
+            updateProgress();
+            
+            // 4. 保存到 localStorage
+            saveDecks();
+
+            // 5. 清空输入框并给与反馈
+            inputWord.value = '';
+            inputDefinition.value = '';
+            showFeedback('Word added!', 'green');
+        }
+
+        /**
+         * 修改：从 "网络添加" 变为 "词典搜索"
+         * 这是一个 async 函数，因为它需要等待 API 返回
+         */
+        async function searchDictionary() {
+            const word = inputWebWord.value.trim();
+            if (word === '') {
+                showFeedback('Please enter a word to search', 'red');
+                return;
+            }
+
+            // **关键：检查是否为英语牌堆**
+            if (currentLanguage.toLowerCase() !== 'english') {
+                searchResults.innerHTML = `<p class="text-red-400 text-center">Dictionary search only works for the 'English' deck. Please switch to 'Manual Add' for other languages.</p>`;
+                return;
+            }
+
+            searchResults.innerHTML = `<p class="text-gray-400 text-center">Searching...</p>`;
+
+            try {
+                const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+                
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        searchResults.innerHTML = `<p class="text-red-400 text-center">No definitions found for "${word}".</p>`;
+                    } else {
+                        searchResults.innerHTML = `<p class="text-red-400 text-center">Error fetching from dictionary.</p>`;
+                    }
+                    return;
+                }
+
+                const data = await response.json();
+                
+                // 清空搜索结果
+                searchResults.innerHTML = '';
+                let definitionsFound = 0;
+
+                // API 返回的数据结构很复杂，我们需要遍历它
+                data.forEach(entry => {
+                    entry.meanings.forEach(meaning => {
+                        meaning.definitions.forEach(definition => {
+                            definitionsFound++;
+                            const definitionText = definition.definition;
+                            
+                            const li = document.createElement('div');
+                            li.className = 'search-result-item';
+                            li.innerHTML = `
+                                <p>${definitionText}</p>
+                                <button class="add-from-api-btn">+ Add this definition</button>
+                            `;
+                            
+                            // 为这个新创建的 "Add" 按钮绑定事件
+                            li.querySelector('.add-from-api-btn').addEventListener('click', () => {
+                                addNewWordFromApi(word, definitionText);
+                            });
+                            
+                            searchResults.appendChild(li);
+                        });
+                    });
+                });
+
+                if (definitionsFound === 0) {
+                     searchResults.innerHTML = `<p class="text-red-400 text-center">No definitions found for "${word}".</p>`;
+                }
+
+            } catch (error) {
+                console.error('Dictionary API error:', error);
+                searchResults.innerHTML = `<p class="text-red-400 text-center">Network error. Please try again.</p>`;
+            }
+        }
+
+        /**
+         * 新增：一个专门的函数，用于从 API 添加单词
+         */
+        function addNewWordFromApi(word, definition) {
+            // 检查单词是否已存在
+            if (allDecks[currentLanguage] && allDecks[currentLanguage].some(card => card.word === word && card.definition === definition)) {
+                showFeedback('This exact card already exists!', 'red');
+                return;
+            }
+            
+            const newCard = { word, definition };
+            
+            if (!allDecks[currentLanguage]) {
+                allDecks[currentLanguage] = [];
+            }
+            allDecks[currentLanguage].push(newCard);
+            currentDeck.push(newCard); // 立即加入学习
+            
+            totalCards = allDecks[currentLanguage].length;
+            updateProgress();
+            saveDecks();
+            
+            showFeedback('Word added from dictionary!', 'green');
+        }
+
+
+        /**
+         * 显示反馈信息
+         */
+        function showFeedback(message, color = 'green') {
+            addFeedback.textContent = message;
+            if (color === 'red') {
+                addFeedback.classList.remove('text-green-400');
+                addFeedback.classList.add('text-red-400');
+            } else {
+                addFeedback.classList.remove('text-red-400');
+                addFeedback.classList.add('text-green-400');
+            }
+            setTimeout(() => { 
+                addFeedback.textContent = ''; 
+                addFeedback.classList.remove('text-red-400');
+            }, 2000);
+        }
+
+        /**
+         * 处理 "记错了"
+         */
+        function handleIncorrect() {
+            if (!currentCard) return; // 防止在完成后点击
+            // 把当前卡片加入到 "复习牌堆" 的末尾
+            reviewDeck.push(currentCard);
+            drawCard();
+        }
+
+        /**
+         * 处理 "认识"
+         */
+        function handleCorrect() {
+            if (!currentCard) return; // 防止在完成后点击
+            // 这张卡被掌握了，直接抽下一张
+            drawCard();
+        }
+
+        /**
+         * 翻转卡片
+         */
+        function flipCard() {
+            if (!currentCard) return; // 防止在完成后点击
+            isFlipped = !isFlipped;
+            flashcard.classList.toggle('is-flipped');
+        }
+
+        /**
+         * 更新进度条
+         */
+        function updateProgress() {
+            const remaining = currentDeck.length + reviewDeck.length;
+            const known = totalCards - remaining;
+            progressText.textContent = `[${currentLanguage}] Progress: ${known} / ${totalCards} (Review: ${reviewDeck.length})`;
+        }
+
+        /**
+         * 显示完成界面
+         */
+        function showCompletion() {
+            cardFront.textContent = '🎉';
+            cardBack.textContent = '🎉';
+            controls.classList.add('hidden');
+            completionView.classList.remove('hidden');
+            progressText.textContent = 'Great job!';
+            currentCard = null; // 停止响应
+        }
+
+        /**
+         * 显示单词列表 Modal
+         */
+        function showWordListModal() {
+            // 1. 清空旧列表
+            reviewList.innerHTML = '';
+            masteredList.innerHTML = '';
+
+            // 获取当前语言的牌堆
+            const currentLanguageDeck = allDecks[currentLanguage] || [];
+
+            // 2. 创建一个 "需要复习" 单词的 Set，方便快速查找
+            // 我们用 word 本身作为key
+            const reviewWordsSet = new Set(reviewDeck.map(card => card.word));
+
+            // 3. 遍历主牌堆
+            const masteredDeck = [];
+            currentLanguageDeck.forEach(card => {
+                if (!reviewWordsSet.has(card.word)) {
+                    // 这个词不在复习列表里，说明 "已掌握" (或还未学习)
+                    masteredDeck.push(card);
+                }
+            });
+
+            // 4. 填充 "需要复习" 列表
+            reviewCount.textContent = reviewDeck.length;
+            if (reviewDeck.length === 0) {
+                reviewList.innerHTML = '<li class="text-gray-500">None</li>';
+            } else {
+                reviewDeck.forEach(card => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span class="font-semibold break-all">${card.word}:</span> <span class="break-all">${card.definition}</span>`;
+                    // 删除按钮
+                    li.appendChild(createDeleteButton(card, 'review'));
+                    reviewList.appendChild(li);
+                });
+            }
+            
+            // 5. 填充 "已掌握" 列表
+            masteredCount.textContent = masteredDeck.length;
+            if (masteredDeck.length === 0) {
+                masteredList.innerHTML = '<li class="text-gray-500">None</li>';
+            } else {
+                masteredDeck.forEach(card => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span class="font-semibold break-all">${card.word}:</span> <span class="break-all">${card.definition}</span>`;
+                    // 删除按钮
+                    li.appendChild(createDeleteButton(card, 'mastered'));
+                    masteredList.appendChild(li);
+                });
+            }
+
+            // 6. 显示 Modal
+            wordListModal.classList.remove('hidden');
+        }
+
+        /**
+         * 创建删除按钮
+         */
+        function createDeleteButton(cardToDelete, listType) {
+            const button = document.createElement('button');
+            button.textContent = 'Delete';
+            button.className = 'ml-4 bg-red-700 hover:bg-red-800 text-white px-2 py-0.5 rounded text-sm float-right';
+            button.onclick = (e) => {
+                e.stopPropagation(); // 防止触发li的事件（如果有）
+                deleteWord(cardToDelete, listType);
+            };
+            return button;
+        }
+        
+        /**
+         * 删除单词
+         */
+        function deleteWord(cardToDelete, listType) {
+            // 1. 从主牌堆 allDecks 中删除
+            const deck = allDecks[currentLanguage];
+            const indexInMain = deck.findIndex(card => card.word === cardToDelete.word && card.definition === cardToDelete.definition);
+            if (indexInMain > -1) {
+                deck.splice(indexInMain, 1);
+            }
+
+            // 2. 从当前复习牌堆 reviewDeck 中删除（如果存在）
+            if (listType === 'review') {
+                const indexInReview = reviewDeck.findIndex(card => card.word === cardToDelete.word && card.definition === cardToDelete.definition);
+                if (indexInReview > -1) {
+                    reviewDeck.splice(indexInReview, 1);
+                }
+            }
+
+            // 3. 从当前学习牌堆 currentDeck 中删除（如果存在）
+            const indexInCurrent = currentDeck.findIndex(card => card.word === cardToDelete.word && card.definition === cardToDelete.definition);
+            if (indexInCurrent > -1) {
+                currentDeck.splice(indexInCurrent, 1);
+            }
+            
+            // 4. 如果删除的是当前卡片，则抽下一张
+            if (currentCard && currentCard.word === cardToDelete.word && currentCard.definition === cardToDelete.definition) {
+                drawCard();
+            }
+
+            // 5. 保存更改
+            saveDecks();
+            
+            // 6. 更新总卡数和进度
+            totalCards = allDecks[currentLanguage].length;
+            updateProgress();
+
+            // 7. 重新渲染 Modal 列表
+            showWordListModal();
+        }
+
+
+        /**
+         * 隐藏单词列表 Modal
+         */
+        function hideWordListModal() {
+            wordListModal.classList.add('hidden');
+        }
+
+        // --- 5. 绑定事件监听 ---
+        flashcardContainer.addEventListener('click', flipCard);
+        btnIncorrect.addEventListener('click', handleIncorrect);
+        btnCorrect.addEventListener('click', handleCorrect);
+        btnRestart.addEventListener('click', startGame);
+        
+        // 绑定两个添加按钮
+        btnAddWord.addEventListener('click', addNewWord);
+        // 修改：绑定搜索按钮
+        btnSearchWeb.addEventListener('click', searchDictionary);
+
+        // Modal 事件
+        btnShowAll.addEventListener('click', showWordListModal);
+        btnCloseModal.addEventListener('click', hideWordListModal);
+        wordListModal.addEventListener('click', (e) => {
+            // 点击 modal 背景（灰色遮罩）时也关闭
+            if (e.target === wordListModal) {
+                hideWordListModal();
+            }
+        });
+
+        // 监听语言和反向模式的变化
+        languageSelect.addEventListener('change', (e) => {
+            currentLanguage = e.target.value;
+            localStorage.setItem('lastLanguage', currentLanguage); // 记住选择
+            startGame();
+        });
+
+        reverseToggle.addEventListener('change', (e) => {
+            isReversed = e.target.checked;
+            // 立即用新模式重新显示当前卡片
+            if (currentCard) {
+                if (isFlipped) {
+                    flipCard(); // 先翻回正面
+                }
+                setTimeout(() => {
+                    if (isReversed) {
+                        cardFront.textContent = currentCard.definition;
+                        cardBack.textContent = currentCard.word;
+                    } else {
+                        cardFront.textContent = currentCard.word;
+                        cardBack.textContent = currentCard.definition;
+                    }
+                }, 150); // 等待翻转动画
+            }
+        });
+
+        // 标签页切换逻辑
+        btnTabManual.addEventListener('click', () => {
+            tabContentManual.classList.remove('hidden');
+            tabContentWeb.classList.add('hidden');
+            btnTabManual.classList.add('active');
+            btnTabWeb.classList.remove('active');
+        });
+
+        btnTabWeb.addEventListener('click', () => {
+            tabContentManual.classList.add('hidden');
+            tabContentWeb.classList.remove('hidden');
+            btnTabManual.classList.remove('active');
+            btnTabWeb.classList.add('active');
+        });
+
+
+        // 页面加载后自动开始
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDecks();
+            startGame();
+            // 额外功能：允许创建新牌堆
+            // 在 "单词" 框输入 "New Deck"，在 "解释" 框输入新牌堆的名字，然后点击添加
+            inputWord.addEventListener('focus', () => {
+                if (inputWord.value === '') {
+                    showFeedback('Tip: Type "New Deck" to create a new deck', 'green');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
